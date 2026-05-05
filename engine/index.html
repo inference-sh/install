@@ -1,0 +1,53 @@
+#!/bin/bash
+set -e
+
+VERSION=${VERSION:-latest}
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+  x86_64) ARCH="amd64" ;;
+  arm64|aarch64) ARCH="arm64" ;;
+  *) echo "unsupported architecture: $ARCH" && exit 1 ;;
+esac
+
+# set install dir
+if [ "$(id -u)" -ne 0 ] && [ -z "$INSTALL_DIR" ]; then
+  INSTALL_DIR="$HOME/.local/bin"
+  mkdir -p "$INSTALL_DIR"
+
+  if [ "$OS" = "darwin" ]; then
+    [ -f "$HOME/.zshrc" ] && grep -q '\.local/bin' "$HOME/.zshrc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+    [ -f "$HOME/.bash_profile" ] && grep -q '\.local/bin' "$HOME/.bash_profile" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bash_profile"
+  else
+    [ -f "$HOME/.bashrc" ] && grep -q '\.local/bin' "$HOME/.bashrc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+  fi
+
+  export PATH="$INSTALL_DIR:$PATH"
+else
+  INSTALL_DIR=${INSTALL_DIR:-/usr/local/bin}
+fi
+
+# resolve download url
+if [ "$VERSION" = "latest" ]; then
+  URL=$(curl -fsSL https://dist.inference.sh/cli/manifest.json | grep -o "\"$OS-$ARCH\":{[^}]*}" | grep -o 'https[^"]*')
+else
+  URL="https://dist.inference.sh/cli/inferencesh-cli-${VERSION}-${OS}-${ARCH}.tar.gz"
+fi
+
+NAME=$(basename "$URL" .tar.gz)
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+echo "downloading cli $VERSION for $OS-$ARCH..."
+curl -fsSL "$URL" -o "$TMP/cli.tar.gz"
+tar -xzf "$TMP/cli.tar.gz" -C "$TMP"
+BIN="$TMP/$NAME"
+
+chmod +x "$BIN"
+rm -f "$INSTALL_DIR/inferencesh" "$INSTALL_DIR/infsh"
+mv "$BIN" "$INSTALL_DIR/inferencesh"
+ln -sf "$INSTALL_DIR/inferencesh" "$INSTALL_DIR/infsh"
+
+echo "installed to $INSTALL_DIR"
+echo "run 'inferencesh' or 'infsh'"
