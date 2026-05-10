@@ -28,12 +28,14 @@ else
   INSTALL_DIR=${INSTALL_DIR:-/usr/local/bin}
 fi
 
-# resolve download url
+# resolve download url from manifest
 if [ "$VERSION" = "latest" ]; then
-  URL=$(curl -fsSL https://dist.inference.sh/cli/manifest.json | grep -o "\"$OS-$ARCH\":{[^}]*}" | grep -o 'https[^"]*')
+  MANIFEST_URL="https://dist.inference.sh/engine/manifest.json"
 else
-  URL="https://dist.inference.sh/cli/inferencesh-cli-${VERSION}-${OS}-${ARCH}.tar.gz"
+  MANIFEST_URL="https://dist.inference.sh/engine/${VERSION}/manifest.json"
 fi
+MANIFEST=$(curl -fsSL "$MANIFEST_URL") || { echo "error: version $VERSION not found"; exit 1; }
+URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\":{[^}]*}" | grep -o 'https[^"]*')
 
 NAME=$(basename "$URL" .tar.gz)
 TMP=$(mktemp -d)

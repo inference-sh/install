@@ -31,13 +31,13 @@ else
 fi
 
 # resolve download url and aliases from manifest
-MANIFEST=""
 if [ "$VERSION" = "latest" ]; then
-  MANIFEST=$(curl -fsSL https://dist.inference.sh/cli/manifest.json)
-  URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\":{[^}]*}" | grep -o 'https[^"]*')
+  MANIFEST_URL="https://dist.inference.sh/cli/manifest.json"
 else
-  URL="https://dist.inference.sh/cli/inferencesh-cli-${VERSION}-${OS}-${ARCH}.tar.gz"
+  MANIFEST_URL="https://dist.inference.sh/cli/${VERSION}/manifest.json"
 fi
+MANIFEST=$(curl -fsSL "$MANIFEST_URL") || { echo "error: version $VERSION not found"; exit 1; }
+URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\":{[^}]*}" | grep -o 'https[^"]*')
 
 # parse aliases from manifest. defaults to "infsh" when not specified or
 # when installing a pinned older version that predates the field.
@@ -58,42 +58,42 @@ curl -fsSL "$URL" -o "$TMP/$TARBALL_NAME"
 
 # verify checksum
 echo "verifying checksum..."
-curl -fsSL https://dist.inference.sh/cli/checksums.txt -o "$TMP/checksums.txt"
-EXPECTED=$(grep "$TARBALL_NAME" "$TMP/checksums.txt" | awk '{print $1}')
-if [ -z "$EXPECTED" ]; then
-  echo "warning: no checksum found for $TARBALL_NAME, skipping verification"
-else
-  if command -v sha256sum >/dev/null 2>&1; then
-    ACTUAL=$(sha256sum "$TMP/$TARBALL_NAME" | awk '{print $1}')
-  elif command -v shasum >/dev/null 2>&1; then
-    ACTUAL=$(shasum -a 256 "$TMP/$TARBALL_NAME" | awk '{print $1}')
+  CHECKSUMS_URL=$(echo "$MANIFEST_URL" | sed 's/manifest\.json/checksums.txt/')
+  curl -fsSL "$CHECKSUMS_URL" -o "$TMP/checksums.txt"
+  EXPECTED=$(grep "$TARBALL_NAME" "$TMP/checksums.txt" | awk '{print $1}')
+  if [ -z "$EXPECTED" ]; then
+    echo "warning: no checksum found for $TARBALL_NAME, skipping verification"
   else
-    echo "warning: no sha256sum or shasum found, skipping verification"
-    ACTUAL="$EXPECTED"
+    if command -v sha256sum >/dev/null 2>&1; then
+      ACTUAL=$(sha256sum "$TMP/$TARBALL_NAME" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+      ACTUAL=$(shasum -a 256 "$TMP/$TARBALL_NAME" | awk '{print $1}')
+    else
+      echo "warning: no sha256sum or shasum found, skipping verification"
+      ACTUAL="$EXPECTED"
+    fi
+    if [ "$ACTUAL" != "$EXPECTED" ]; then
+      echo "error: checksum mismatch!"
+      echo "  expected: $EXPECTED"
+      echo "  got:      $ACTUAL"
+      echo "the download may be corrupted or tampered with."
+      exit 1
+    fi
+    echo "checksum verified."
   fi
-  if [ "$ACTUAL" != "$EXPECTED" ]; then
-    echo "error: checksum mismatch!"
-    echo "  expected: $EXPECTED"
-    echo "  got:      $ACTUAL"
-    echo "the download may be corrupted or tampered with."
-    exit 1
+
+  # verify cosign signature on checksums (optional)
+  DIST_BASE=$(echo "$MANIFEST_URL" | sed 's/\/manifest\.json//')
+  if command -v cosign >/dev/null 2>&1; then
+    echo "verifying signature..."
+    BUNDLE="$TMP/checksums.txt.bundle"
+    curl -fsSL "$DIST_BASE/checksums.txt.bundle" -o "$BUNDLE" 2>/dev/null && \
+    cosign verify-blob "$TMP/checksums.txt" \
+      --bundle "$BUNDLE" \
+      --key "$DIST_BASE/cosign.pub" && \
+    echo "signature verified." || \
+    echo "warning: signature verification failed, continuing with checksum-only."
   fi
-  echo "checksum verified."
-fi
-
-# verify cosign signature on checksums (optional)
-DIST_BASE="https://dist.inference.sh/cli"
-
-if command -v cosign >/dev/null 2>&1; then
-  echo "verifying signature..."
-  BUNDLE="$TMP/checksums.txt.bundle"
-  curl -fsSL "$DIST_BASE/checksums.txt.bundle" -o "$BUNDLE" 2>/dev/null && \
-  cosign verify-blob "$TMP/checksums.txt" \
-    --bundle "$BUNDLE" \
-    --key "$DIST_BASE/cosign.pub" && \
-  echo "signature verified." || \
-  echo "warning: signature verification failed, continuing with checksum-only."
-fi
 
 tar -xzf "$TMP/$TARBALL_NAME" -C "$TMP"
 BIN="$TMP/$NAME"
