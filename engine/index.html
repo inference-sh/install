@@ -117,4 +117,11 @@ mkdir -p "$CONFIG_DIR"
 echo "installed to $INSTALL_DIR/inferencesh-engine"
 ALIAS_LIST=$(echo "$ALIASES" | tr ' ' ',' | sed 's/,$//')
 echo "aliases: $ALIAS_LIST"
-echo "run 'inferencesh-engine setup docker' to set up dependencies"
+
+# Give the user the right next step based on what's already set up
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  echo ""
+  echo "run 'engine serve' to start the worker daemon"
+else
+  echo "run 'inferencesh-engine setup docker' to set up dependencies"
+fi
