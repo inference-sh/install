@@ -37,7 +37,7 @@ else
   MANIFEST_URL="https://dist.inference.sh/engine/${VERSION}/manifest.json"
 fi
 MANIFEST=$(curl -fsSL "$MANIFEST_URL") || { echo "error: version $VERSION not found"; exit 1; }
-URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\":{[^}]*}" | grep -o 'https[^"]*')
+URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\" *: *{[^}]*}" | grep -o 'https[^"]*')
 
 # parse aliases from manifest. defaults to "engine" when not specified or
 # when installing a pinned older version that predates the field.
