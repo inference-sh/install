@@ -42,7 +42,7 @@ URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\" *: *{[^}]*}" | grep -o 'https[^"
 # parse aliases from manifest. defaults to "engine" when not specified or
 # when installing a pinned older version that predates the field.
 if [ -n "$MANIFEST" ]; then
-  ALIASES=$(echo "$MANIFEST" | grep -o '"aliases":\[[^]]*\]' | grep -o '"[^"]*"' | grep -v '^"aliases"$' | tr -d '"' | tr '\n' ' ')
+  ALIASES=$(echo "$MANIFEST" | grep -o '"aliases" *: *\[[^]]*\]' | grep -o '"[^"]*"' | grep -v '^"aliases"$' | tr -d '"' | tr '\n' ' ')
 fi
 if [ -z "$ALIASES" ]; then
   ALIASES="engine"
