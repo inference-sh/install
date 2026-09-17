@@ -5,11 +5,21 @@ VERSION=${VERSION:-latest}
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
+# Git Bash / MSYS / Cygwin report e.g. "mingw64_nt-10.0-26200".
+case "$OS" in
+  mingw*|msys*|cygwin*) OS="windows" ;;
+esac
+
 case "$ARCH" in
   x86_64) ARCH="amd64" ;;
   arm64|aarch64) ARCH="arm64" ;;
   *) echo "unsupported architecture: $ARCH" && exit 1 ;;
 esac
+
+# No native windows-arm64 build yet; the amd64 build runs under emulation.
+if [ "$OS" = "windows" ] && [ "$ARCH" = "arm64" ]; then
+  ARCH="amd64"
+fi
 
 # set install dir
 if [ "$(id -u)" -ne 0 ] && [ -z "$INSTALL_DIR" ]; then
@@ -17,7 +27,12 @@ if [ "$(id -u)" -ne 0 ] && [ -z "$INSTALL_DIR" ]; then
   mkdir -p "$INSTALL_DIR"
 
   PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-  add_path() { [ -f "$1" ] && grep -q '\.local/bin' "$1" || echo "$PATH_LINE" >> "$1"; }
+  # A read-only or missing rc file must not abort the install.
+  add_path() {
+    { [ -f "$1" ] && grep -q '\.local/bin' "$1"; } && return 0
+    { echo "$PATH_LINE" >> "$1"; } 2>/dev/null || PATH_WARN=1
+  }
+  case ":$PATH:" in *":$INSTALL_DIR:"*) ;; *) PATH_MISSING=1 ;; esac
   if [ "$OS" = "darwin" ]; then
     add_path "$HOME/.zshrc"
     add_path "$HOME/.bash_profile"
@@ -37,7 +52,11 @@ else
   MANIFEST_URL="https://dist.inference.sh/engine/${VERSION}/manifest.json"
 fi
 MANIFEST=$(curl -fsSL "$MANIFEST_URL") || { echo "error: version $VERSION not found"; exit 1; }
-URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\" *: *{[^}]*}" | grep -o 'https[^"]*')
+URL=$(echo "$MANIFEST" | grep -o "\"$OS-$ARCH\" *: *{[^}]*}" | grep -o 'https[^"]*' | head -n 1) || true
+if [ -z "$URL" ]; then
+  echo "error: no build for $OS-$ARCH in $MANIFEST_URL"
+  exit 1
+fi
 
 # parse aliases from manifest. defaults to "engine" when not specified or
 # when installing a pinned older version that predates the field.
@@ -48,7 +67,11 @@ if [ -z "$ALIASES" ]; then
   ALIASES="engine"
 fi
 
-NAME=$(basename "$URL" .tar.gz)
+case "$URL" in
+  *.zip) EXT=".zip" ;;
+  *) EXT=".tar.gz" ;;
+esac
+NAME=$(basename "$URL" "$EXT")
 TARBALL_NAME=$(basename "$URL")
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -95,20 +118,36 @@ if command -v cosign >/dev/null 2>&1; then
   echo "warning: signature verification failed, continuing with checksum-only."
 fi
 
-tar -xzf "$TMP/$TARBALL_NAME" -C "$TMP"
-BIN="$TMP/$NAME"
+if [ "$EXT" = ".zip" ]; then
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q "$TMP/$TARBALL_NAME" -d "$TMP"
+  elif command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -Command "Expand-Archive -Force -Path '$(cygpath -w "$TMP/$TARBALL_NAME")' -DestinationPath '$(cygpath -w "$TMP")'"
+  else
+    echo "error: need unzip or powershell.exe to extract $TARBALL_NAME"
+    exit 1
+  fi
+else
+  tar -xzf "$TMP/$TARBALL_NAME" -C "$TMP"
+fi
 
-chmod +x "$BIN"
-# Clear the real binary plus all aliases before installing.
-rm -f "$INSTALL_DIR/inferencesh-engine"
-for alias in $ALIASES; do
-  rm -f "$INSTALL_DIR/$alias"
-done
-mv "$BIN" "$INSTALL_DIR/inferencesh-engine"
-# Recreate aliases as symlinks (relative target so the link survives moves).
-for alias in $ALIASES; do
-  ln -sf inferencesh-engine "$INSTALL_DIR/$alias"
-done
+if [ "$OS" = "windows" ]; then
+  # No symlinks without elevation on Windows: install one exe per name.
+  BIN="$TMP/$NAME.exe"
+  [ -f "$BIN" ] || BIN=$(find "$TMP" -maxdepth 1 -name '*.exe' | head -n 1)
+  for name in inferencesh-engine $ALIASES; do
+    cp -f "$BIN" "$INSTALL_DIR/$name.exe"
+  done
+else
+  BIN="$TMP/$NAME"
+  chmod +x "$BIN"
+  # mv over the target is atomic: the binary is never missing mid-install.
+  mv -f "$BIN" "$INSTALL_DIR/inferencesh-engine"
+  # Recreate aliases as symlinks (relative target so the link survives moves).
+  for alias in $ALIASES; do
+    ln -sf inferencesh-engine "$INSTALL_DIR/$alias"
+  done
+fi
 
 # ensure config directory exists
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/inferencesh"
@@ -124,4 +163,13 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   echo "run 'engine serve' to start the worker daemon"
 else
   echo "run 'inferencesh-engine setup docker' to set up dependencies"
+fi
+
+if [ -n "$PATH_MISSING" ]; then
+  if [ -n "$PATH_WARN" ]; then
+    echo "note: could not update your shell profile. add this line to it yourself:"
+  else
+    echo "note: $INSTALL_DIR was added to your shell profile. restart your shell, or run:"
+  fi
+  echo "  $PATH_LINE"
 fi

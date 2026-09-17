@@ -2,7 +2,8 @@
 
 Curl install scripts for inference.sh, served via Cloudflare Pages.
 
-- `cli.inference.sh` → `cli/index.html`
+- `cli.inference.sh` → `cli/index.html` (bash; also handles Git Bash on Windows)
+- `cli.inference.sh/install.ps1` → `cli/install.ps1` (PowerShell)
 - `engine.inference.sh` → `engine/index.html`
 
 ## Updating
