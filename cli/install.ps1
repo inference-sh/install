@@ -8,8 +8,13 @@ $ProgressPreference = "SilentlyContinue"
 $version = if ($env:VERSION) { $env:VERSION } else { "latest" }
 $installDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
 
-# No native windows-arm64 build yet; the amd64 build runs under emulation.
-$key = "windows-amd64"
+# Native arch, even from an emulated x64/x86 PowerShell on an ARM64 machine.
+$arch = "amd64"
+try {
+  if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq "Arm64") { $arch = "arm64" }
+} catch {}
+if ($env:PROCESSOR_ARCHITEW6432 -eq "ARM64" -or $env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
+$key = "windows-$arch"
 
 $manifestUrl = if ($version -eq "latest") {
   "https://dist.inference.sh/cli/manifest.json"
@@ -24,6 +29,13 @@ try {
 }
 
 $build = $manifest.builds.$key
+# Releases before the native windows-arm64 build have no such key; the amd64
+# build runs under emulation there.
+if (-not $build -and $key -eq "windows-arm64") {
+  Write-Host "note: no windows-arm64 build in $version, using windows-amd64 under emulation"
+  $key = "windows-amd64"
+  $build = $manifest.builds.$key
+}
 if (-not $build) { throw "no build for $key in $manifestUrl" }
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("belt-install-" + [Guid]::NewGuid().ToString("N"))
