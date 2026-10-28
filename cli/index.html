@@ -1,4 +1,5 @@
 #!/bin/bash
+# >>> shared main-head: same in cli/ and engine/, see scripts/check.sh
 # Everything is in main, called on the last line: a download cut short by
 # `curl | sh` defines a function and runs nothing.
 main() {
@@ -27,6 +28,7 @@ case "$VERSION" in
   latest) ;;
   ""|.*|*[!A-Za-z0-9._-]*) echo "error: VERSION '$VERSION' is not a version (want latest or e.g. v1.2.3)"; exit 1 ;;
 esac
+# <<< shared main-head
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
@@ -66,6 +68,7 @@ else
   mkdir -p "$INSTALL_DIR"
 fi
 
+# >>> shared root-warning: same in cli/ and engine/, see scripts/check.sh
 # As root, what is installed may be run by a root service: whoever can
 # write to the install dir, or to a dir above it, can replace it.
 if [ "$(id -u)" -eq 0 ] && [ "$OS" != "windows" ]; then
@@ -76,6 +79,7 @@ if [ "$(id -u)" -eq 0 ] && [ "$OS" != "windows" ]; then
     echo "  runs theirs. Install into a dir only root can write to, such as /usr/local/bin."
   fi
 fi
+# <<< shared root-warning
 
 # resolve download url and aliases from manifest
 if [ "$VERSION" = "latest" ]; then
@@ -108,6 +112,7 @@ fi
 if [ -z "$ALIASES" ]; then
   ALIASES="belt infsh"
 fi
+# >>> shared alias-names: same in cli/ and engine/, see scripts/check.sh
 # An alias is a file name in the install dir, nothing more.
 SAFE_ALIASES=""
 for alias in $ALIASES; do
@@ -117,6 +122,7 @@ for alias in $ALIASES; do
   esac
 done
 ALIASES=${SAFE_ALIASES# }
+# <<< shared alias-names
 
 case "$URL" in
   *.zip) EXT=".zip" ;;
@@ -125,8 +131,10 @@ esac
 NAME=$(basename "$URL" "$EXT")
 TARBALL_NAME=$(basename "$URL")
 TMP=$(mktemp -d)
+# >>> shared stage-trap: same in cli/ and engine/, see scripts/check.sh
 STAGE=""
 trap 'rm -rf "$TMP"; [ -z "$STAGE" ] || rm -f "$STAGE"' EXIT
+# <<< shared stage-trap
 
 echo "downloading cli $VERSION for $OS-$ARCH..."
 curl -fsSL "$URL" -o "$TMP/$TARBALL_NAME"
@@ -192,13 +200,14 @@ if [ "$OS" = "windows" ]; then
   done
 else
   BIN="$TMP/$NAME"
+  # >>> shared install-binary: same in cli/ and engine/, see scripts/check.sh
   # A new file beside the target, renamed over it: on one filesystem the
-  # swap is atomic, so the binary is never missing mid-install, even if a
-  # running belt is self-updating at the same moment. It is made
-  # here, owned by whoever runs this, never extracted in place: tar run as
-  # root keeps the archive's owner (uid 1000), and a root service must not
-  # run a file another user can replace. An existing file's owner does not
-  # carry over: the rename replaces it.
+  # swap is atomic, so the binary is never missing mid-install, even while
+  # a running copy updates itself. It is made here, owned by whoever runs
+  # this, never extracted in place: tar run as root keeps the archive's
+  # owner (uid 1000), and a root service must not run a file another user
+  # can replace. An existing file's owner does not carry over: the rename
+  # replaces it.
   STAGE=$(mktemp "$INSTALL_DIR/.inferencesh.XXXXXX")
   cat "$BIN" > "$STAGE"
   if [ "$(id -u)" -eq 0 ]; then
@@ -211,6 +220,7 @@ else
   for alias in $ALIASES; do
     ln -sfn inferencesh "$INSTALL_DIR/$alias"
   done
+  # <<< shared install-binary
 fi
 
 echo "installed to $INSTALL_DIR"
