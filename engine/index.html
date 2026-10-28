@@ -1,7 +1,32 @@
 #!/bin/bash
+# Everything is in main, called on the last line: a download cut short by
+# `curl | sh` defines a function and runs nothing.
+main() {
 set -e
+# No globbing: $ALIASES and ls's fields are split into words, never expanded.
+set -f
+
+# writable_by_others prints the first of dir and the dirs above it that a
+# user other than root can write to: not owned by root, writable by its
+# group (other than root's), or by everyone. Nothing when there is none.
+writable_by_others() {
+  _d=$(cd "$1" 2>/dev/null && pwd -P) || return 0
+  while :; do
+    # shellcheck disable=SC2046
+    set -- $(ls -ldn "$_d")
+    case "$1" in ????????w*) echo "$_d"; return 0 ;; esac
+    case "$1" in ?????w*) [ "$4" = 0 ] || { echo "$_d"; return 0; } ;; esac
+    [ "$3" = 0 ] || { echo "$_d"; return 0; }
+    [ "$_d" = / ] && return 0
+    _d=$(dirname "$_d")
+  done
+}
 
 VERSION=${VERSION:-latest}
+case "$VERSION" in
+  latest) ;;
+  ""|.*|*[!A-Za-z0-9._-]*) echo "error: VERSION '$VERSION' is not a version (want latest or e.g. v1.2.3)"; exit 1 ;;
+esac
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
@@ -43,6 +68,18 @@ if [ "$(id -u)" -ne 0 ] && [ -z "$INSTALL_DIR" ]; then
   export PATH="$INSTALL_DIR:$PATH"
 else
   INSTALL_DIR=${INSTALL_DIR:-/usr/local/bin}
+  mkdir -p "$INSTALL_DIR"
+fi
+
+# As root, what is installed may be run by a root service: whoever can
+# write to the install dir, or to a dir above it, can replace it.
+if [ "$(id -u)" -eq 0 ] && [ "$OS" != "windows" ]; then
+  UNSAFE_DIR=$(writable_by_others "$INSTALL_DIR") || true
+  if [ -n "$UNSAFE_DIR" ]; then
+    echo "warning: $UNSAFE_DIR can be written by a user other than root: that user can replace"
+    echo "  $INSTALL_DIR/inferencesh-engine with their own program, and anything that runs it as root"
+    echo "  runs theirs. Install into a dir only root can write to, such as /usr/local/bin."
+  fi
 fi
 
 # resolve download url and aliases from manifest
@@ -66,6 +103,15 @@ fi
 if [ -z "$ALIASES" ]; then
   ALIASES="engine"
 fi
+# An alias is a file name in the install dir, nothing more.
+SAFE_ALIASES=""
+for alias in $ALIASES; do
+  case "$alias" in
+    .*|*/*|*[!A-Za-z0-9._-]*) echo "warning: skipping alias '$alias': not a plain file name" ;;
+    *) SAFE_ALIASES="$SAFE_ALIASES $alias" ;;
+  esac
+done
+ALIASES=${SAFE_ALIASES# }
 
 case "$URL" in
   *.zip) EXT=".zip" ;;
@@ -74,7 +120,8 @@ esac
 NAME=$(basename "$URL" "$EXT")
 TARBALL_NAME=$(basename "$URL")
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+STAGE=""
+trap 'rm -rf "$TMP"; [ -z "$STAGE" ] || rm -f "$STAGE"' EXIT
 
 echo "downloading engine $VERSION for $OS-$ARCH..."
 curl -fsSL "$URL" -o "$TMP/$TARBALL_NAME"
@@ -140,12 +187,23 @@ if [ "$OS" = "windows" ]; then
   done
 else
   BIN="$TMP/$NAME"
-  chmod +x "$BIN"
-  # mv over the target is atomic: the binary is never missing mid-install.
-  mv -f "$BIN" "$INSTALL_DIR/inferencesh-engine"
+  # A new file beside the target, renamed over it: on one filesystem the
+  # swap is atomic, so the binary is never missing mid-install. It is made
+  # here, owned by whoever runs this, never extracted in place: tar run as
+  # root keeps the archive's owner (uid 1000), and a root service must not
+  # run a file another user can replace. An existing file's owner does not
+  # carry over: the rename replaces it.
+  STAGE=$(mktemp "$INSTALL_DIR/.inferencesh-engine.XXXXXX")
+  cat "$BIN" > "$STAGE"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown 0:0 "$STAGE"
+  fi
+  chmod 0755 "$STAGE"
+  mv -f "$STAGE" "$INSTALL_DIR/inferencesh-engine"
+  STAGE=""
   # Recreate aliases as symlinks (relative target so the link survives moves).
   for alias in $ALIASES; do
-    ln -sf inferencesh-engine "$INSTALL_DIR/$alias"
+    ln -sfn inferencesh-engine "$INSTALL_DIR/$alias"
   done
 fi
 
@@ -173,3 +231,6 @@ if [ -n "$PATH_MISSING" ]; then
   fi
   echo "  $PATH_LINE"
 fi
+}
+
+main "$@"
