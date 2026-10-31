@@ -226,9 +226,15 @@ echo "installed to $INSTALL_DIR/inferencesh-engine"
 ALIAS_LIST=$(echo "$ALIASES" | tr ' ' ',' | sed 's/,$//')
 echo "aliases: $ALIAS_LIST"
 
-# Give the user the right next step based on what's already set up
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  echo ""
+# Give the user the right next step based on what's already set up. On
+# Linux, engine setup runs the engine as a service (and installs Docker);
+# a host that has the service already only needs it restarted.
+echo ""
+if [ "$OS" = "linux" ] && [ -f /etc/systemd/system/inferencesh-engine.service ]; then
+  echo "restart the engine service to run this version: Restart in the app (it waits for running tasks), or systemctl restart inferencesh-engine"
+elif [ "$OS" = "linux" ]; then
+  echo "next: engine setup (runs it as a service; add --unattended for no questions)"
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   echo "run 'engine serve' to start the worker daemon"
 else
   echo "run 'inferencesh-engine setup docker' to set up dependencies"
