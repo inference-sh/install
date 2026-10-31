@@ -227,13 +227,13 @@ ALIAS_LIST=$(echo "$ALIASES" | tr ' ' ',' | sed 's/,$//')
 echo "aliases: $ALIAS_LIST"
 
 # Give the user the right next step based on what's already set up. On
-# Linux, engine setup runs the engine as a service (and installs Docker);
-# a host that has the service already only needs it restarted.
+# Linux the engine itself says (engine setup --next-step: it knows its
+# service and which binary that runs); an engine too old to say gets the
+# general one.
 echo ""
-if [ "$OS" = "linux" ] && [ -f /etc/systemd/system/inferencesh-engine.service ]; then
-  echo "restart the engine service to run this version: Restart in the app (it waits for running tasks), or systemctl restart inferencesh-engine"
-elif [ "$OS" = "linux" ]; then
-  echo "next: engine setup (runs it as a service; add --unattended for no questions)"
+if [ "$OS" = "linux" ]; then
+  "$INSTALL_DIR/inferencesh-engine" setup --next-step 2>/dev/null ||
+    echo "next: engine setup (runs it as a service; add --unattended for no questions)"
 elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   echo "run 'engine serve' to start the worker daemon"
 else
