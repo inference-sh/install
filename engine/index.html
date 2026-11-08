@@ -37,6 +37,24 @@ case "$OS" in
   mingw*|msys*|cygwin*) OS="windows" ;;
 esac
 
+# Arguments go to engine setup once the engine is installed:
+#   curl -fsSL https://engine.inference.sh | sudo sh -s -- --dedicated --token infse-...
+# Setup is Linux only and runs as root; elsewhere they are ignored.
+# masked is the arguments with an enrollment token's secret left out.
+masked() { echo "$*" | sed 's/infse-[A-Za-z0-9_-]*/infse-.../g'; }
+SETUP=""
+if [ "$#" -gt 0 ]; then
+  if [ "$OS" != "linux" ]; then
+    echo "note: engine setup is Linux only: ignoring the arguments ($(masked "$@")); installing the engine"
+  elif [ "$(id -u)" -ne 0 ]; then
+    echo "error: engine setup runs as root: run the installer with sudo:"
+    echo "  curl -fsSL https://engine.inference.sh | sudo sh -s -- <arguments>"
+    exit 1
+  else
+    SETUP=1
+  fi
+fi
+
 case "$ARCH" in
   x86_64) ARCH="amd64" ;;
   arm64|aarch64) ARCH="arm64" ;;
@@ -231,7 +249,19 @@ echo "aliases: $ALIAS_LIST"
 # service and which binary that runs); an engine too old to say gets the
 # general one.
 echo ""
-if [ "$OS" = "linux" ]; then
+if [ -n "$SETUP" ]; then
+  # exec skips the EXIT trap: clean up first. Under `curl | sh` stdin is
+  # the script; setup asks before it applies when stdin is a terminal, so
+  # it gets the terminal when there is one (none under cloud-init: pass
+  # --unattended there).
+  rm -rf "$TMP"
+  trap - EXIT
+  echo "running: engine setup $(masked "$@")"
+  if (: </dev/tty) 2>/dev/null; then
+    exec "$INSTALL_DIR/inferencesh-engine" setup "$@" </dev/tty
+  fi
+  exec "$INSTALL_DIR/inferencesh-engine" setup "$@"
+elif [ "$OS" = "linux" ]; then
   "$INSTALL_DIR/inferencesh-engine" setup --next-step 2>/dev/null ||
     echo "next: engine setup (runs it as a service; add --unattended for no questions)"
 elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
