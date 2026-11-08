@@ -39,14 +39,14 @@ esac
 
 # Arguments set the engine up once it is installed. The enrollment token
 # from the web app's add engine, alone, is auto mode:
-#   curl -fsSL https://engine.inference.sh | sudo sh -s infse-...
-# runs engine setup --dedicated --unattended --token infse-... (a server
+#   curl -fsSL https://engine.inference.sh | sudo sh -s infen-...
+# runs engine setup --dedicated --unattended --token infen-... (a server
 # only for the engine, no questions). --ask, anywhere, runs
-# engine setup --token infse-... instead: it shows the plan and asks.
+# engine setup --token infen-... instead: it shows the plan and asks.
 # Any other argument goes to engine setup as it is. Setup is Linux only
 # and runs as root; elsewhere the arguments are ignored.
 # masked is the arguments with an enrollment token's secret left out.
-masked() { echo "$*" | sed 's/infse-[A-Za-z0-9_-]*/infse-.../g'; }
+masked() { echo "$*" | sed 's/infen-[A-Za-z0-9_-]*/infen-.../g'; }
 SETUP=""
 if [ "$#" -gt 0 ]; then
   if [ "$OS" != "linux" ]; then
@@ -67,7 +67,7 @@ if [ "$#" -gt 0 ]; then
       _i=$((_i + 1))
       case "$_a" in
         --ask) ASK=1 ;;
-        infse-*) if [ "$_i" -eq 1 ]; then TOKEN=$_a; else set -- "$@" "$_a"; fi ;;
+        infen-*) if [ "$_i" -eq 1 ]; then TOKEN=$_a; else set -- "$@" "$_a"; fi ;;
         *) set -- "$@" "$_a" ;;
       esac
     done
