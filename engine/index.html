@@ -37,9 +37,14 @@ case "$OS" in
   mingw*|msys*|cygwin*) OS="windows" ;;
 esac
 
-# Arguments go to engine setup once the engine is installed:
-#   curl -fsSL https://engine.inference.sh | sudo sh -s -- --dedicated --token infse-...
-# Setup is Linux only and runs as root; elsewhere they are ignored.
+# Arguments set the engine up once it is installed. The enrollment token
+# from the web app's add engine, alone, is auto mode:
+#   curl -fsSL https://engine.inference.sh | sudo sh -s infse-...
+# runs engine setup --dedicated --unattended --token infse-... (a server
+# only for the engine, no questions). --ask, anywhere, runs
+# engine setup --token infse-... instead: it shows the plan and asks.
+# Any other argument goes to engine setup as it is. Setup is Linux only
+# and runs as root; elsewhere the arguments are ignored.
 # masked is the arguments with an enrollment token's secret left out.
 masked() { echo "$*" | sed 's/infse-[A-Za-z0-9_-]*/infse-.../g'; }
 SETUP=""
@@ -48,10 +53,29 @@ if [ "$#" -gt 0 ]; then
     echo "note: engine setup is Linux only: ignoring the arguments ($(masked "$@")); installing the engine"
   elif [ "$(id -u)" -ne 0 ]; then
     echo "error: engine setup runs as root: run the installer with sudo:"
-    echo "  curl -fsSL https://engine.inference.sh | sudo sh -s -- <arguments>"
+    echo "  curl -fsSL https://engine.inference.sh | sudo sh -s <token from add engine>"
     exit 1
   else
     SETUP=1
+    TOKEN=""
+    ASK=""
+    _n=$#
+    _i=0
+    while [ "$_i" -lt "$_n" ]; do
+      _a=$1
+      shift
+      _i=$((_i + 1))
+      case "$_a" in
+        --ask) ASK=1 ;;
+        infse-*) if [ "$_i" -eq 1 ]; then TOKEN=$_a; else set -- "$@" "$_a"; fi ;;
+        *) set -- "$@" "$_a" ;;
+      esac
+    done
+    if [ -n "$TOKEN" ] && [ -n "$ASK" ]; then
+      set -- --token "$TOKEN" "$@"
+    elif [ -n "$TOKEN" ]; then
+      set -- --dedicated --unattended --token "$TOKEN" "$@"
+    fi
   fi
 fi
 
